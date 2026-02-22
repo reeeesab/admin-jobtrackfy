@@ -31,13 +31,10 @@ export async function GET() {
       try {
         // @ts-ignore - auth.admin may exist in supabase-js version used
         if (supabase.auth && supabase.auth.admin && typeof supabase.auth.admin.listUsers === 'function') {
-          // listUsers returns { data, error, count }
+          // listUsers returns { data: { users: [...] }, error } in supabase-js v2
           const list = await supabase.auth.admin.listUsers();
-          // listUsers may return { data: { users: [...] } } depending on SDK; handle common shapes
-          if (list && (list.data || (list.users))) {
-            const usersArr = list.data?.users || list.users || list.data || [];
-            totalUsers = Array.isArray(usersArr) ? usersArr.length : 0;
-          }
+          const usersArr = Array.isArray(list?.data?.users) ? list.data.users : [];
+          totalUsers = usersArr.length;
         }
       } catch (err) {
         console.warn('Admin API listUsers call failed', err);
