@@ -1,30 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
-
-type BlogStatus = 'draft' | 'published';
+import {
+  BlogUpsertData,
+  estimateReadingTimeMinutes,
+  markdownToHtml,
+  normalizeFaq,
+  normalizeKeywords,
+  toSlug,
+} from '@/lib/blogContent';
 
 type BlogUpdatePayload = {
+  categoryId?: unknown;
   title?: unknown;
   slug?: unknown;
   excerpt?: unknown;
   content?: unknown;
+  contentMarkdown?: unknown;
   coverImageUrl?: unknown;
+  coverImageAlt?: unknown;
   authorName?: unknown;
   status?: unknown;
+  metaTitle?: unknown;
+  metaDescription?: unknown;
+  canonicalUrl?: unknown;
+  ogImageUrl?: unknown;
+  ogImageAlt?: unknown;
+  primaryKeyword?: unknown;
+  secondaryKeywords?: unknown;
+  schemaFaq?: unknown;
 };
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-function toSlug(input: string) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 120);
-}
 
 export async function GET(_: NextRequest, context: RouteContext) {
   try {
@@ -33,7 +41,7 @@ export async function GET(_: NextRequest, context: RouteContext) {
 
     const { data, error } = await supabase
       .from('blog_posts')
-      .select('id, title, slug, excerpt, content, cover_image_url, author_name, status, published_at, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -53,14 +61,35 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const payload = (await request.json()) as BlogUpdatePayload;
 
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
+    const categoryId = typeof payload.categoryId === 'string' ? payload.categoryId.trim() : '';
     const inputSlug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
     const excerpt = typeof payload.excerpt === 'string' ? payload.excerpt.trim() : '';
-    const content = typeof payload.content === 'string' ? payload.content.trim() : '';
+    const contentMarkdownRaw =
+      typeof payload.contentMarkdown === 'string'
+        ? payload.contentMarkdown
+        : typeof payload.content === 'string'
+          ? payload.content
+          : '';
+    const contentMarkdown = contentMarkdownRaw.trim();
     const coverImageUrl = typeof payload.coverImageUrl === 'string' ? payload.coverImageUrl.trim() : '';
+    const coverImageAlt = typeof payload.coverImageAlt === 'string' ? payload.coverImageAlt.trim() : '';
     const authorName = typeof payload.authorName === 'string' ? payload.authorName.trim() : '';
+    const metaTitle = typeof payload.metaTitle === 'string' ? payload.metaTitle.trim() : '';
+    const metaDescription = typeof payload.metaDescription === 'string' ? payload.metaDescription.trim() : '';
+    const canonicalUrl = typeof payload.canonicalUrl === 'string' ? payload.canonicalUrl.trim() : '';
+    const ogImageUrl = typeof payload.ogImageUrl === 'string' ? payload.ogImageUrl.trim() : '';
+    const ogImageAlt = typeof payload.ogImageAlt === 'string' ? payload.ogImageAlt.trim() : '';
+    const primaryKeyword = typeof payload.primaryKeyword === 'string' ? payload.primaryKeyword.trim() : '';
+    const secondaryKeywords = normalizeKeywords(
+      typeof payload.secondaryKeywords === 'string' || Array.isArray(payload.secondaryKeywords)
+        ? payload.secondaryKeywords as string | string[]
+        : undefined
+    );
+    const schemaFaq = normalizeFaq(payload.schemaFaq);
 
     if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 });
-    if (!content) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+    if (!categoryId) return NextResponse.json({ error: 'Category is required' }, { status: 400 });
+    if (!contentMarkdown) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
 
     const slug = toSlug(inputSlug || title);
     if (!slug) return NextResponse.json({ error: 'Slug is invalid' }, { status: 400 });
@@ -102,25 +131,33 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         ? existing.data.published_at || new Date().toISOString()
         : null;
 
-    const updatePayload: {
-      title: string;
-      slug: string;
-      excerpt: string;
-      content: string;
-      cover_image_url: string | null;
-      author_name: string;
-      status: BlogStatus;
-      published_at: string | null;
-      updated_at: string;
-    } = {
+    const contentHtml = markdownToHtml(contentMarkdown);
+    const readingTime = estimateReadingTimeMinutes(contentMarkdown);
+    const computedMetaTitle = (metaTitle || title).slice(0, 60);
+    const computedMetaDescription = (metaDescription || excerpt || contentMarkdown.slice(0, 160)).slice(0, 160);
+
+    const updatePayload: BlogUpsertData & { updated_at: string } = {
+      category_id: categoryId,
       title,
       slug,
       excerpt,
-      content,
+      content: contentMarkdown,
+      content_markdown: contentMarkdown,
+      content_html: contentHtml,
       cover_image_url: coverImageUrl || null,
+      cover_image_alt: coverImageAlt,
       author_name: authorName || 'JobTrackfy Team',
       status,
       published_at: nextPublishedAt,
+      meta_title: computedMetaTitle,
+      meta_description: computedMetaDescription,
+      canonical_url: canonicalUrl || null,
+      og_image_url: ogImageUrl || coverImageUrl || null,
+      og_image_alt: ogImageAlt || coverImageAlt,
+      primary_keyword: primaryKeyword,
+      secondary_keywords: secondaryKeywords,
+      schema_faq: schemaFaq,
+      reading_time_minutes: readingTime,
       updated_at: new Date().toISOString(),
     };
 
@@ -128,10 +165,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       .from('blog_posts')
       .update(updatePayload)
       .eq('id', id)
-      .select('id, title, slug, excerpt, content, cover_image_url, author_name, status, published_at, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .single();
 
     if (error) {
+      if (error.code === '23503') {
+        return NextResponse.json({ error: 'Invalid category selected' }, { status: 400 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

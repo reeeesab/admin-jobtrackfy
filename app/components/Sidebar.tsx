@@ -15,7 +15,6 @@ export default function Sidebar({ children }: SidebarProps) {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: '📊' },
     { name: 'AI Answer Generator', href: '/ai-answer-generator', icon: '💬' },
-    { name: 'Analytics', href: '/analytics', icon: '📈' },
     { name: 'Settings', href: '/settings', icon: '⚙️' },
   ];
 

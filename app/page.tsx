@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { createAdminSessionToken, getAdminSessionCookieName, getAuthenticatedAdminUser, validateAdminCredentials } from '@/lib/adminAuth';
+import { createAdminSessionToken, getAdminSessionCookieName, getAuthenticatedAdminUser, hasAnyAdminUser, validateAdminCredentials } from '@/lib/adminAuth';
 
 type LoginPageProps = {
   searchParams?: Promise<{ error?: string }> | { error?: string };
@@ -76,11 +76,11 @@ async function loginAction(formData: FormData) {
     redirect('/?error=invalid');
   }
 
-  if (!process.env.ADMIN_USERS && !process.env.ADMIN_USER_1_USERNAME && !process.env.ADMIN_USER_2_USERNAME) {
+  if (!(await hasAnyAdminUser())) {
     redirect('/?error=config');
   }
 
-  if (!validateAdminCredentials(username, password)) {
+  if (!(await validateAdminCredentials(username, password))) {
     redirect('/?error=invalid');
   }
 
@@ -95,4 +95,3 @@ async function loginAction(formData: FormData) {
 
   redirect('/dashboard');
 }
-
