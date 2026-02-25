@@ -3,7 +3,10 @@ import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import {
   BlogUpsertData,
   estimateReadingTimeMinutes,
+  estimateReadingTimeFromText,
+  htmlToPlainText,
   markdownToHtml,
+  normalizeEditorJson,
   normalizeFaq,
   normalizeKeywords,
   toSlug,
@@ -16,6 +19,8 @@ type BlogUpdatePayload = {
   excerpt?: unknown;
   content?: unknown;
   contentMarkdown?: unknown;
+  contentHtml?: unknown;
+  contentJson?: unknown;
   coverImageUrl?: unknown;
   coverImageAlt?: unknown;
   authorName?: unknown;
@@ -41,7 +46,7 @@ export async function GET(_: NextRequest, context: RouteContext) {
 
     const { data, error } = await supabase
       .from('blog_posts')
-      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, content_json, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -64,6 +69,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const categoryId = typeof payload.categoryId === 'string' ? payload.categoryId.trim() : '';
     const inputSlug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
     const excerpt = typeof payload.excerpt === 'string' ? payload.excerpt.trim() : '';
+    const contentHtmlInput = typeof payload.contentHtml === 'string' ? payload.contentHtml.trim() : '';
+    const contentJson = normalizeEditorJson(payload.contentJson);
     const contentMarkdownRaw =
       typeof payload.contentMarkdown === 'string'
         ? payload.contentMarkdown
@@ -89,7 +96,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     if (!title) return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     if (!categoryId) return NextResponse.json({ error: 'Category is required' }, { status: 400 });
-    if (!contentMarkdown) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
+    if (!contentMarkdown && !contentHtmlInput) return NextResponse.json({ error: 'Content is required' }, { status: 400 });
 
     const slug = toSlug(inputSlug || title);
     if (!slug) return NextResponse.json({ error: 'Slug is invalid' }, { status: 400 });
@@ -131,19 +138,23 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         ? existing.data.published_at || new Date().toISOString()
         : null;
 
-    const contentHtml = markdownToHtml(contentMarkdown);
-    const readingTime = estimateReadingTimeMinutes(contentMarkdown);
+    const contentHtml = contentHtmlInput || markdownToHtml(contentMarkdown);
+    const plainTextContent = htmlToPlainText(contentHtml) || contentMarkdown;
+    const readingTime = contentMarkdown
+      ? estimateReadingTimeMinutes(contentMarkdown)
+      : estimateReadingTimeFromText(plainTextContent);
     const computedMetaTitle = (metaTitle || title).slice(0, 60);
-    const computedMetaDescription = (metaDescription || excerpt || contentMarkdown.slice(0, 160)).slice(0, 160);
+    const computedMetaDescription = (metaDescription || excerpt || plainTextContent.slice(0, 160)).slice(0, 160);
 
     const updatePayload: BlogUpsertData & { updated_at: string } = {
       category_id: categoryId,
       title,
       slug,
       excerpt,
-      content: contentMarkdown,
-      content_markdown: contentMarkdown,
+      content: contentMarkdown || plainTextContent,
+      content_markdown: contentMarkdown || plainTextContent,
       content_html: contentHtml,
+      content_json: contentJson,
       cover_image_url: coverImageUrl || null,
       cover_image_alt: coverImageAlt,
       author_name: authorName || 'JobTrackfy Team',
@@ -165,7 +176,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       .from('blog_posts')
       .update(updatePayload)
       .eq('id', id)
-      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, content_json, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .single();
 
     if (error) {

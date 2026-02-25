@@ -6,6 +6,7 @@ create table if not exists public.blog_posts (
   slug text not null unique,
   excerpt text not null default '',
   content text not null,
+  content_json jsonb not null default '{"type":"doc","content":[]}'::jsonb,
   cover_image_url text null,
   author_name text not null default 'JobTrackfy Team',
   status text not null default 'draft' check (status in ('draft', 'published')),

@@ -3,7 +3,10 @@ import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import {
   BlogUpsertData,
   estimateReadingTimeMinutes,
+  estimateReadingTimeFromText,
+  htmlToPlainText,
   markdownToHtml,
+  normalizeEditorJson,
   normalizeFaq,
   normalizeKeywords,
   toSlug,
@@ -16,6 +19,8 @@ type BlogPayload = {
   excerpt?: unknown;
   content?: unknown;
   contentMarkdown?: unknown;
+  contentHtml?: unknown;
+  contentJson?: unknown;
   coverImageUrl?: unknown;
   coverImageAlt?: unknown;
   authorName?: unknown;
@@ -35,6 +40,8 @@ function validatePayload(payload: BlogPayload): { data?: BlogUpsertData; error?:
   const categoryId = typeof payload.categoryId === 'string' ? payload.categoryId.trim() : '';
   const inputSlug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
   const excerpt = typeof payload.excerpt === 'string' ? payload.excerpt.trim() : '';
+  const contentHtmlInput = typeof payload.contentHtml === 'string' ? payload.contentHtml.trim() : '';
+  const contentJson = normalizeEditorJson(payload.contentJson);
   const contentMarkdownRaw =
     typeof payload.contentMarkdown === 'string'
       ? payload.contentMarkdown
@@ -61,16 +68,19 @@ function validatePayload(payload: BlogPayload): { data?: BlogUpsertData; error?:
 
   if (!title) return { error: 'Title is required' };
   if (!categoryId) return { error: 'Category is required' };
-  if (!contentMarkdown) return { error: 'Content is required' };
+  if (!contentMarkdown && !contentHtmlInput) return { error: 'Content is required' };
 
   const slug = toSlug(inputSlug || title);
   if (!slug) return { error: 'Slug is invalid' };
   const computedMetaTitle = (metaTitle || title).slice(0, 60);
-  const computedMetaDescription = (metaDescription || excerpt || contentMarkdown.slice(0, 160)).slice(0, 160);
+  const contentHtml = contentHtmlInput || markdownToHtml(contentMarkdown);
+  const plainTextContent = htmlToPlainText(contentHtml) || contentMarkdown;
+  const computedMetaDescription = (metaDescription || excerpt || plainTextContent.slice(0, 160)).slice(0, 160);
 
   const nowIso = new Date().toISOString();
-  const contentHtml = markdownToHtml(contentMarkdown);
-  const readingTime = estimateReadingTimeMinutes(contentMarkdown);
+  const readingTime = contentMarkdown
+    ? estimateReadingTimeMinutes(contentMarkdown)
+    : estimateReadingTimeFromText(plainTextContent);
 
   return {
     data: {
@@ -78,9 +88,10 @@ function validatePayload(payload: BlogPayload): { data?: BlogUpsertData; error?:
       title,
       slug,
       excerpt,
-      content: contentMarkdown,
-      content_markdown: contentMarkdown,
+      content: contentMarkdown || plainTextContent,
+      content_markdown: contentMarkdown || plainTextContent,
       content_html: contentHtml,
+      content_json: contentJson,
       cover_image_url: coverImageUrl || null,
       cover_image_alt: coverImageAlt,
       author_name: authorName || 'JobTrackfy Team',
@@ -104,7 +115,7 @@ export async function GET() {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from('blog_posts')
-      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, content_json, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -148,7 +159,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('blog_posts')
       .insert(parsed.data)
-      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
+      .select('id, category_id, category:blog_categories(id, name, slug), title, slug, excerpt, content, content_markdown, content_html, content_json, cover_image_url, cover_image_alt, author_name, status, published_at, meta_title, meta_description, canonical_url, og_image_url, og_image_alt, primary_keyword, secondary_keywords, schema_faq, reading_time_minutes, created_at, updated_at')
       .single();
 
     if (error) {

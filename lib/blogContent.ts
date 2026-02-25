@@ -13,6 +13,7 @@ export type BlogUpsertData = {
   content: string;
   content_markdown: string;
   content_html: string;
+  content_json: Record<string, unknown>;
   cover_image_url: string | null;
   cover_image_alt: string;
   author_name: string;
@@ -27,6 +28,12 @@ export type BlogUpsertData = {
   secondary_keywords: string[];
   schema_faq: BlogFaqItem[];
   reading_time_minutes: number;
+};
+
+type ProseMirrorNode = {
+  type?: unknown;
+  text?: unknown;
+  content?: unknown;
 };
 
 export function toSlug(input: string) {
@@ -164,6 +171,46 @@ export function estimateReadingTimeMinutes(markdown: string) {
     .filter(Boolean).length;
 
   return Math.max(1, Math.round(words / 220));
+}
+
+export function estimateReadingTimeFromText(text: string) {
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+  return Math.max(1, Math.round(words / 220));
+}
+
+export function htmlToPlainText(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeEditorJson(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object') {
+    return { type: 'doc', content: [] };
+  }
+
+  const node = input as ProseMirrorNode;
+  const type = typeof node.type === 'string' ? node.type : '';
+  const maybeContent = Array.isArray(node.content) ? node.content : null;
+
+  if (type !== 'doc' || !maybeContent) {
+    return { type: 'doc', content: [] };
+  }
+
+  return input as Record<string, unknown>;
 }
 
 export function normalizeKeywords(input: string | string[] | undefined | null) {

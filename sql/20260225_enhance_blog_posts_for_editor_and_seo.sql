@@ -15,6 +15,7 @@ create table if not exists public.blog_posts (
 );
 
 alter table public.blog_posts
+  add column if not exists content_json jsonb not null default '{"type":"doc","content":[]}'::jsonb,
   add column if not exists content_markdown text,
   add column if not exists content_html text,
   add column if not exists cover_image_alt text not null default '',

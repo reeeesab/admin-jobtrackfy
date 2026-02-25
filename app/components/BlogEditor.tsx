@@ -1,7 +1,10 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { markdownToHtml, toSlug } from '@/lib/blogContent';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import type { JSONContent } from '@tiptap/react';
+import { toSlug } from '@/lib/blogContent';
+import TiptapEditor from './TiptapEditor';
+import TiptapPreview from './TiptapPreview';
 
 type BlogStatus = 'draft' | 'published';
 
@@ -27,6 +30,7 @@ type BlogPost = {
   content: string;
   content_markdown: string | null;
   content_html: string | null;
+  content_json: JSONContent | null;
   cover_image_url: string | null;
   cover_image_alt: string;
   author_name: string;
@@ -51,6 +55,8 @@ type BlogFormState = {
   slug: string;
   excerpt: string;
   contentMarkdown: string;
+  contentHtml: string;
+  contentJson: JSONContent;
   coverImageUrl: string;
   coverImageAlt: string;
   authorName: string;
@@ -71,6 +77,8 @@ const INITIAL_FORM: BlogFormState = {
   slug: '',
   excerpt: '',
   contentMarkdown: '',
+  contentHtml: '',
+  contentJson: { type: 'doc', content: [] },
   coverImageUrl: '',
   coverImageAlt: '',
   authorName: 'JobTrackfy Team',
@@ -98,6 +106,22 @@ function getMetaDescriptionDraft(form: BlogFormState) {
   return (form.metaDescription || form.excerpt || form.contentMarkdown.slice(0, 160)).trim();
 }
 
+function getContentStats(text: string, html: string) {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const headings = (html.match(/<h[1-6][^>]*>/g) || []).length;
+  const listItems = (html.match(/<li[^>]*>/g) || []).length;
+  return { words, headings, listItems };
+}
+
+function sanitizeErrorMessage(raw: string) {
+  const withoutTags = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!withoutTags) return 'Request failed. Please try again.';
+  if (/cloudflare|ssl handshake|error code 525/i.test(withoutTags)) {
+    return 'Supabase is temporarily unreachable (SSL handshake failed). Please retry in a few minutes.';
+  }
+  return withoutTags.length > 220 ? `${withoutTags.slice(0, 220)}...` : withoutTags;
+}
+
 export default function BlogEditor() {
   const [categories, setCategories] = useState<BlogCategory[]>([]);
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
@@ -107,8 +131,7 @@ export default function BlogEditor() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [previewMode, setPreviewMode] = useState<'write' | 'preview'>('write');
-  const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  const [editorMode, setEditorMode] = useState<'write' | 'preview'>('write');
 
   const filteredBlogs = useMemo(() => {
     const query = search.toLowerCase().trim();
@@ -117,6 +140,11 @@ export default function BlogEditor() {
       return blog.title.toLowerCase().includes(query) || blog.slug.toLowerCase().includes(query);
     });
   }, [blogs, search]);
+
+  const contentStats = useMemo(
+    () => getContentStats(form.contentMarkdown, form.contentHtml),
+    [form.contentMarkdown, form.contentHtml],
+  );
 
   const metaTitleDraft = getMetaTitleDraft(form);
   const metaDescriptionDraft = getMetaDescriptionDraft(form);
@@ -129,10 +157,10 @@ export default function BlogEditor() {
     try {
       const res = await fetch('/api/admin/blogs', { cache: 'no-store' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to load blogs');
+      if (!res.ok) throw new Error(sanitizeErrorMessage(json?.error || 'Failed to load blogs'));
       setBlogs(json.blogs || []);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load blogs');
+      setError(loadError instanceof Error ? sanitizeErrorMessage(loadError.message) : 'Failed to load blogs');
     } finally {
       setLoading(false);
     }
@@ -142,13 +170,13 @@ export default function BlogEditor() {
     try {
       const res = await fetch('/api/admin/blog-categories', { cache: 'no-store' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to load categories');
+      if (!res.ok) throw new Error(sanitizeErrorMessage(json?.error || 'Failed to load categories'));
       setCategories(json.categories || []);
       if ((json.categories || []).length > 0) {
         setForm((prev) => prev.categoryId ? prev : { ...prev, categoryId: json.categories[0].id });
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load categories');
+      setError(loadError instanceof Error ? sanitizeErrorMessage(loadError.message) : 'Failed to load categories');
     }
   };
 
@@ -164,34 +192,31 @@ export default function BlogEditor() {
     });
     setEditingId(null);
     setError(null);
-    setPreviewMode('write');
+    setEditorMode('write');
   };
 
-  const insertAtCursor = (prefix: string, suffix = '', placeholder = 'text') => {
-    const textarea = contentRef.current;
-    if (!textarea) return;
+  const handleEditorChange = (next: { json: JSONContent; html: string; text: string }) => {
+    setForm((prev) => ({
+      ...prev,
+      contentJson: next.json,
+      contentHtml: next.html,
+      contentMarkdown: next.text,
+    }));
+  };
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const value = form.contentMarkdown;
-    const selected = value.slice(start, end) || placeholder;
-    const nextValue = `${value.slice(0, start)}${prefix}${selected}${suffix}${value.slice(end)}`;
+  const handleEditorImageUpload = async (file: File) => {
+    const body = new FormData();
+    body.append('image', file);
 
-    setForm((prev) => ({ ...prev, contentMarkdown: nextValue }));
-
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const newStart = start + prefix.length;
-      const newEnd = newStart + selected.length;
-      textarea.setSelectionRange(newStart, newEnd);
+    const res = await fetch('/api/admin/blog-images', {
+      method: 'POST',
+      body,
     });
-  };
-
-  const addImageMarkdown = () => {
-    const imageUrl = window.prompt('Image URL (https://...)');
-    if (!imageUrl) return;
-    const alt = window.prompt('Image alt text for SEO and accessibility') || 'Blog image';
-    insertAtCursor(`\n![${alt}](${imageUrl})\n`, '', '');
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(sanitizeErrorMessage(json?.error || 'Failed to upload image'));
+    }
+    return String(json.url || '');
   };
 
   const handleEdit = (blog: BlogPost) => {
@@ -202,6 +227,8 @@ export default function BlogEditor() {
       slug: blog.slug,
       excerpt: blog.excerpt || '',
       contentMarkdown: blog.content_markdown || blog.content || '',
+      contentHtml: blog.content_html || '',
+      contentJson: blog.content_json || { type: 'doc', content: [] },
       coverImageUrl: blog.cover_image_url || '',
       coverImageAlt: blog.cover_image_alt || '',
       authorName: blog.author_name || 'JobTrackfy Team',
@@ -216,7 +243,7 @@ export default function BlogEditor() {
       schemaFaq: Array.isArray(blog.schema_faq) ? blog.schema_faq : [],
     });
     setError(null);
-    setPreviewMode('write');
+    setEditorMode('write');
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -232,6 +259,8 @@ export default function BlogEditor() {
         excerpt: form.excerpt,
         content: form.contentMarkdown,
         contentMarkdown: form.contentMarkdown,
+        contentHtml: form.contentHtml,
+        contentJson: form.contentJson,
         coverImageUrl: form.coverImageUrl,
         coverImageAlt: form.coverImageAlt,
         authorName: form.authorName,
@@ -256,14 +285,14 @@ export default function BlogEditor() {
         body: JSON.stringify(payload),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to save blog post');
+      if (!res.ok) throw new Error(sanitizeErrorMessage(json?.error || 'Failed to save blog post'));
 
       await loadBlogs();
       if (!isEdit) {
         resetForm();
       }
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to save blog post');
+      setError(saveError instanceof Error ? sanitizeErrorMessage(saveError.message) : 'Failed to save blog post');
     } finally {
       setSaving(false);
     }
@@ -277,11 +306,11 @@ export default function BlogEditor() {
     try {
       const res = await fetch(`/api/admin/blogs/${id}`, { method: 'DELETE' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to delete blog post');
+      if (!res.ok) throw new Error(sanitizeErrorMessage(json?.error || 'Failed to delete blog post'));
       await loadBlogs();
       if (editingId === id) resetForm();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : 'Failed to delete blog post');
+      setError(deleteError instanceof Error ? sanitizeErrorMessage(deleteError.message) : 'Failed to delete blog post');
     }
   };
 
@@ -297,13 +326,13 @@ export default function BlogEditor() {
         body: JSON.stringify({ name }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || 'Failed to create category');
+      if (!res.ok) throw new Error(sanitizeErrorMessage(json?.error || 'Failed to create category'));
       await loadCategories();
       if (json?.category?.id) {
         setForm((prev) => ({ ...prev, categoryId: json.category.id }));
       }
     } catch (categoryError) {
-      setError(categoryError instanceof Error ? categoryError.message : 'Failed to create category');
+      setError(categoryError instanceof Error ? sanitizeErrorMessage(categoryError.message) : 'Failed to create category');
     }
   };
 
@@ -476,56 +505,48 @@ export default function BlogEditor() {
 
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Content Editor (Markdown)</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Content Editor</span>
               <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden text-xs">
                 <button
                   type="button"
-                  onClick={() => setPreviewMode('write')}
-                  className={`px-3 py-1.5 ${previewMode === 'write' ? 'bg-gray-200 dark:bg-gray-700' : ''}`}
+                  onClick={() => setEditorMode('write')}
+                  className={`px-3 py-1.5 ${editorMode === 'write' ? 'bg-gray-200 dark:bg-gray-700' : ''}`}
                 >
                   Write
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPreviewMode('preview')}
-                  className={`px-3 py-1.5 ${previewMode === 'preview' ? 'bg-gray-200 dark:bg-gray-700' : ''}`}
+                  onClick={() => setEditorMode('preview')}
+                  className={`px-3 py-1.5 ${editorMode === 'preview' ? 'bg-gray-200 dark:bg-gray-700' : ''}`}
                 >
                   Preview
                 </button>
               </div>
             </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              TipTap rich editor with structured content JSON. Use Upload Image for Supabase storage.
+            </div>
 
-            {previewMode === 'write' && (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button type="button" onClick={() => insertAtCursor('## ', '', 'Section title')} className="px-2.5 py-1.5 border rounded">H2</button>
-                  <button type="button" onClick={() => insertAtCursor('### ', '', 'Subsection title')} className="px-2.5 py-1.5 border rounded">H3</button>
-                  <button type="button" onClick={() => insertAtCursor('**', '**', 'bold text')} className="px-2.5 py-1.5 border rounded">Bold</button>
-                  <button type="button" onClick={() => insertAtCursor('*', '*', 'italic text')} className="px-2.5 py-1.5 border rounded">Italic</button>
-                  <button type="button" onClick={() => insertAtCursor('[', '](https://)', 'link text')} className="px-2.5 py-1.5 border rounded">Link</button>
-                  <button type="button" onClick={() => insertAtCursor('\n- ', '', 'List item')} className="px-2.5 py-1.5 border rounded">List</button>
-                  <button type="button" onClick={() => insertAtCursor('\n1. ', '', 'Step')} className="px-2.5 py-1.5 border rounded">Numbered</button>
-                  <button type="button" onClick={() => insertAtCursor('\n```\n', '\n```', 'code block')} className="px-2.5 py-1.5 border rounded">Code</button>
-                  <button type="button" onClick={addImageMarkdown} className="px-2.5 py-1.5 border rounded">Image</button>
-                </div>
-                <textarea
-                  ref={contentRef}
-                  required
-                  value={form.contentMarkdown}
-                  onChange={(event) => setForm((prev) => ({ ...prev, contentMarkdown: event.target.value }))}
-                  rows={18}
-                  className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
-                  placeholder="# Title\n\nStart writing..."
-                />
-              </div>
-            )}
-
-            {previewMode === 'preview' && (
+            {editorMode === 'write' ? (
+              <TiptapEditor
+                content={form.contentJson}
+                onChange={handleEditorChange}
+                onUploadImage={handleEditorImageUpload}
+              />
+            ) : form.contentJson?.type === 'doc' ? (
+              <TiptapPreview content={form.contentJson} />
+            ) : (
               <div
-                className="prose prose-sm max-w-none rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 text-gray-900 dark:text-gray-100"
-                dangerouslySetInnerHTML={{ __html: markdownToHtml(form.contentMarkdown) }}
+                className="prose prose-sm md:prose-base max-w-none rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 text-gray-900 dark:text-gray-100 min-h-[420px]"
+                dangerouslySetInnerHTML={{ __html: form.contentHtml || '<p>Nothing to preview yet.</p>' }}
               />
             )}
+
+            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+              <span>{contentStats.words} words</span>
+              <span>{contentStats.headings} headings</span>
+              <span>{contentStats.listItems} list items</span>
+            </div>
           </section>
 
           <section className="rounded-md border border-gray-200 dark:border-gray-700 p-4 space-y-4">

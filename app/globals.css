@@ -24,3 +24,81 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.tiptap-content h1 {
+  font-size: 2rem;
+  line-height: 1.25;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+}
+
+.tiptap-content h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 700;
+  margin: 0.9rem 0 0.45rem;
+}
+
+.tiptap-content h3 {
+  font-size: 1.25rem;
+  line-height: 1.35;
+  font-weight: 600;
+  margin: 0.8rem 0 0.4rem;
+}
+
+.tiptap-content p {
+  margin: 0.65rem 0;
+}
+
+.tiptap-content ul,
+.tiptap-content ol {
+  margin: 0.65rem 0 0.65rem 1.25rem;
+}
+
+.tiptap-content ul {
+  list-style: disc;
+}
+
+.tiptap-content ol {
+  list-style: decimal;
+}
+
+.tiptap-content blockquote {
+  border-left: 3px solid #16a34a;
+  margin: 0.9rem 0;
+  padding-left: 0.9rem;
+  color: #4b5563;
+}
+
+.dark .tiptap-content blockquote {
+  color: #9ca3af;
+}
+
+.tiptap-content pre {
+  margin: 0.9rem 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #111827;
+  color: #f3f4f6;
+  overflow-x: auto;
+}
+
+.tiptap-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.tiptap-content a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.dark .tiptap-content a {
+  color: #60a5fa;
+}
+
+.tiptap-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 0.9rem 0;
+}
