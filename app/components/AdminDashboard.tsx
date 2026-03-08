@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import BlogEditor from './BlogEditor';
+import AdminJobs from './AdminJobs';
 
-type AdminTab = 'overview' | 'blogs';
+type AdminTab = 'overview' | 'blogs' | 'jobs';
 type GaOverviewMetrics = {
   activeUsers: number;
   newUsers: number;
@@ -89,6 +90,7 @@ export default function AdminDashboard() {
             {[
               { id: 'overview', label: 'Overview' },
               { id: 'blogs', label: 'Blogs' },
+              { id: 'jobs', label: 'Job Board' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -104,10 +106,9 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {activeTab === 'overview' && (
-              <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">System Status</h3>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -129,9 +130,9 @@ export default function AdminDashboard() {
                       </span>
                     </div>
                   </div>
-                </div>
+              </div>
 
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Google Analytics (GA4)</h3>
                   {gaLoading && (
                     <p className="text-sm text-gray-600 dark:text-gray-400">Loading analytics...</p>
@@ -186,12 +187,12 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   )}
-                </div>
-              </>
-            )}
+              </div>
+            </div>
+          )}
 
-            {activeTab === 'blogs' && <BlogEditor />}
-          </div>
+          {activeTab === 'blogs' && <BlogEditor />}
+          {activeTab === 'jobs' && <AdminJobs />}
         </div>
       </main>
     </div>
