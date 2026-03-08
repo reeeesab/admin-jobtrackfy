@@ -7,6 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "JobTrackfy Admin",
   description: "Administrative dashboard for JobTrackfy",
+  icons: { icon: "/favicon.ico" },
 };
 
 export default function RootLayout({
